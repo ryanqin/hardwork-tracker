@@ -314,7 +314,15 @@ export default function TrackerPanel() {
     <div className="flex flex-col" style={{ maxHeight: 'calc(100vh - 220px)' }}>
       {/* Scrollable tracker list */}
       <div className="overflow-y-auto flex-1 space-y-2 pr-1">
-        {trackers.map(t => (
+        {[...trackers].sort((a, b) => {
+        const pa = getTodayValue(logs, a.id) / (a.dailyTarget || 1)
+        const pb = getTodayValue(logs, b.id) / (b.dailyTarget || 1)
+        const da = pa >= 1 ? 1 : 0
+        const db = pb >= 1 ? 1 : 0
+        if (da !== db) return db - da   // 完成的在前
+        if (da === 0) return pb - pa    // 未完成：完成度高的在前
+        return 0
+      }).map(t => (
           <TrackerCard key={t.id} tracker={t} logs={logs} onLog={handleLog} onDelete={handleDelete} />
         ))}
         {trackers.length === 0 && !adding && (
