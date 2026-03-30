@@ -1,34 +1,30 @@
 import { WorkRecord, DailyStats } from './types'
 
-const STORAGE_KEY = 'hardwork_records'
-
-export function getRecords(): WorkRecord[] {
-  if (typeof window === 'undefined') return []
-  try {
-    const data = localStorage.getItem(STORAGE_KEY)
-    return data ? JSON.parse(data) : []
-  } catch {
-    return []
-  }
+// ── API helpers ──────────────────────────────────────────────
+export async function getRecords(): Promise<WorkRecord[]> {
+  const res = await fetch('/api/records', { cache: 'no-store' })
+  if (!res.ok) return []
+  return res.json()
 }
 
-export function saveRecord(record: Omit<WorkRecord, 'id' | 'createdAt'>): WorkRecord {
-  const records = getRecords()
-  const newRecord: WorkRecord = {
-    ...record,
-    id: Date.now().toString(),
-    createdAt: new Date().toISOString(),
-  }
-  records.push(newRecord)
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(records))
-  return newRecord
+export async function saveRecord(record: Omit<WorkRecord, 'id' | 'createdAt'>): Promise<WorkRecord> {
+  const res = await fetch('/api/records', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(record),
+  })
+  return res.json()
 }
 
-export function deleteRecord(id: string): void {
-  const records = getRecords().filter(r => r.id !== id)
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(records))
+export async function deleteRecord(id: string): Promise<void> {
+  await fetch('/api/records', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  })
 }
 
+// ── Pure utils ───────────────────────────────────────────────
 export function getToday(): string {
   return new Date().toISOString().split('T')[0]
 }
@@ -45,53 +41,31 @@ export function getTodayStats(records: WorkRecord[]): DailyStats {
 
 export function getStreak(records: WorkRecord[]): { current: number; best: number } {
   if (records.length === 0) return { current: 0, best: 0 }
-
   const dates = new Set(records.map(r => r.date))
-  const sortedDates = Array.from(dates).sort().reverse()
-
-  let current = 0
-  let best = 0
-  let streak = 0
-  let prev = ''
-
   const today = getToday()
-  const hasToday = dates.has(today)
 
-  // Check streak going backwards from today
-  let checkDate = new Date()
-  if (!hasToday) {
-    checkDate.setDate(checkDate.getDate() - 1)
-  }
-
+  // current streak
+  let current = 0
+  const d = new Date()
+  if (!dates.has(today)) d.setDate(d.getDate() - 1)
   for (let i = 0; i < 365; i++) {
-    const dateStr = checkDate.toISOString().split('T')[0]
-    if (dates.has(dateStr)) {
-      streak++
-      if (i === 0 || i === (hasToday ? 0 : 0)) current = streak
-    } else {
-      break
-    }
-    checkDate.setDate(checkDate.getDate() - 1)
+    if (dates.has(d.toISOString().split('T')[0])) {
+      current++
+      d.setDate(d.getDate() - 1)
+    } else break
   }
-  current = streak
 
-  // Calculate best streak
-  let tempStreak = 0
-  const allDates = Array.from(dates).sort()
-  for (let i = 0; i < allDates.length; i++) {
-    if (i === 0) {
-      tempStreak = 1
-    } else {
-      const prev = new Date(allDates[i - 1])
-      const curr = new Date(allDates[i])
-      const diff = (curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24)
-      if (diff === 1) {
-        tempStreak++
-      } else {
-        tempStreak = 1
-      }
+  // best streak
+  const sorted = Array.from(dates).sort()
+  let best = 0, temp = 0
+  for (let i = 0; i < sorted.length; i++) {
+    if (i === 0) { temp = 1 } else {
+      const prev = new Date(sorted[i - 1])
+      const curr = new Date(sorted[i])
+      const diff = (curr.getTime() - prev.getTime()) / 86400000
+      temp = diff === 1 ? temp + 1 : 1
     }
-    best = Math.max(best, tempStreak)
+    best = Math.max(best, temp)
   }
 
   return { current, best }
@@ -100,7 +74,6 @@ export function getStreak(records: WorkRecord[]): { current: number; best: numbe
 export function getLast30DaysStats(records: WorkRecord[]): DailyStats[] {
   const result: DailyStats[] = []
   const today = new Date()
-
   for (let i = 29; i >= 0; i--) {
     const d = new Date(today)
     d.setDate(d.getDate() - i)
@@ -112,7 +85,6 @@ export function getLast30DaysStats(records: WorkRecord[]): DailyStats[] {
       records: dayRecords,
     })
   }
-
   return result
 }
 
@@ -123,18 +95,6 @@ export function formatMinutes(minutes: number): string {
   return m > 0 ? `${h}小时${m}分钟` : `${h}小时`
 }
 
-export const CATEGORY_COLORS: Record<string, string> = {
-  编程: '#000000',
-  学习: '#333333',
-  健身: '#555555',
-  写作: '#777777',
-  其他: '#999999',
-}
-
 export const CATEGORY_EMOJI: Record<string, string> = {
-  编程: '💻',
-  学习: '📚',
-  健身: '💪',
-  写作: '✍️',
-  其他: '⚡',
+  编程: '💻', 学习: '📚', 健身: '💪', 写作: '✍️', 其他: '⚡',
 }

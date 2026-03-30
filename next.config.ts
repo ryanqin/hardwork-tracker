@@ -1,7 +1,7 @@
-import type { NextConfig } from "next";
+import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
-  /* config options here */
-};
+  // 允许局域网设备访问
+}
 
-export default nextConfig;
+export default nextConfig
