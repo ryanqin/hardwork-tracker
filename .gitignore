@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# 本地数据（不上传到 public repo）
+/data/
+*.local.json
+hardwork-data.json
+export-*.json
