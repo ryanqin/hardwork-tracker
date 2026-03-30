@@ -137,7 +137,7 @@ export default function Home() {
           <div>
             {/* Activity Pool */}
             {!trackersLoading && (
-              <ActivityPool trackers={trackers} logs={trackerLogs} onLog={handleLog} />
+              <ActivityPool trackers={trackers} logs={trackerLogs} />
             )}
 
             {/* Record time — collapsible */}
