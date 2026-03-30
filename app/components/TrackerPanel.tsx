@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Tracker, TrackerLog, TrackerUnit, UNIT_LABELS } from '../types'
 import {
   getTrackers, createTracker, deleteTracker,
@@ -8,19 +8,62 @@ import {
   getToday, getTodayValue, getTrackerStreak, getLast30Days,
 } from '../tracker-lib'
 
-function ProgressRing({ pct }: { pct: number }) {
+// ── Timer state (localStorage) ───────────────────────────────
+interface TimerState {
+  trackerId: string
+  startTime: number   // timestamp when last resumed
+  elapsed: number     // ms accumulated before current run
+  running: boolean
+}
+
+const TIMER_KEY = (id: string) => `timer_${id}`
+
+function loadTimer(id: string): TimerState | null {
+  try {
+    const raw = localStorage.getItem(TIMER_KEY(id))
+    return raw ? JSON.parse(raw) : null
+  } catch { return null }
+}
+
+function saveTimer(state: TimerState) {
+  localStorage.setItem(TIMER_KEY(state.trackerId), JSON.stringify(state))
+}
+
+function clearTimer(id: string) {
+  localStorage.removeItem(TIMER_KEY(id))
+}
+
+function getElapsed(state: TimerState): number {
+  if (!state.running) return state.elapsed
+  return state.elapsed + (Date.now() - state.startTime)
+}
+
+function formatTime(ms: number): string {
+  const totalSec = Math.floor(ms / 1000)
+  const h = Math.floor(totalSec / 3600)
+  const m = Math.floor((totalSec % 3600) / 60)
+  const s = totalSec % 60
+  if (h > 0) return `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+  return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+}
+
+// ── Progress ring ────────────────────────────────────────────
+function ProgressRing({ pct, running }: { pct: number; running?: boolean }) {
   const r = 20
   const circ = 2 * Math.PI * r
   const filled = Math.min(pct, 1) * circ
   return (
     <svg width={52} height={52} className="-rotate-90">
       <circle cx={26} cy={26} r={r} fill="none" stroke="#f3f4f6" strokeWidth={4} />
-      <circle cx={26} cy={26} r={r} fill="none" stroke="black" strokeWidth={4}
-        strokeDasharray={`${filled} ${circ}`} strokeLinecap="round" />
+      <circle cx={26} cy={26} r={r} fill="none"
+        stroke={running ? '#16a34a' : 'black'} strokeWidth={4}
+        strokeDasharray={`${filled} ${circ}`} strokeLinecap="round"
+        className={running ? 'transition-all duration-1000' : ''} />
     </svg>
   )
 }
 
+// ── TrackerCard ──────────────────────────────────────────────
 function TrackerCard({
   tracker, logs, onLog, onDelete,
 }: {
@@ -34,29 +77,127 @@ function TrackerCard({
   const streak = getTrackerStreak(logs, tracker)
   const pct = tracker.dailyTarget > 0 ? todayVal / tracker.dailyTarget : 0
   const done = pct >= 1
-  const [input, setInput] = useState('')
-  const [note, setNote] = useState('')
-  const [logging, setLogging] = useState(false)
-  const [expanded, setExpanded] = useState(false)
   const hist = getLast30Days(logs, tracker.id).slice(-7).reverse()
   const todayLogs = logs.filter(l => l.trackerId === tracker.id && l.date === today)
 
-  async function handleLog(e: React.FormEvent) {
+  // Timer state
+  const [timer, setTimer] = useState<TimerState | null>(null)
+  const [displayMs, setDisplayMs] = useState(0)
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // Manual log
+  const [manualInput, setManualInput] = useState('')
+  const [manualNote, setManualNote] = useState('')
+  const [logging, setLogging] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+
+  // Finish dialog (for non-minutes units)
+  const [finishDialog, setFinishDialog] = useState<{ ms: number } | null>(null)
+  const [finishQty, setFinishQty] = useState('')
+
+  // Load timer from localStorage on mount
+  useEffect(() => {
+    const saved = loadTimer(tracker.id)
+    if (saved) {
+      setTimer(saved)
+      setDisplayMs(getElapsed(saved))
+    }
+  }, [tracker.id])
+
+  // Tick
+  useEffect(() => {
+    if (timer?.running) {
+      tickRef.current = setInterval(() => {
+        setDisplayMs(getElapsed(timer))
+      }, 1000)
+    } else {
+      if (tickRef.current) clearInterval(tickRef.current)
+    }
+    return () => { if (tickRef.current) clearInterval(tickRef.current) }
+  }, [timer])
+
+  function handleStart() {
+    const state: TimerState = {
+      trackerId: tracker.id,
+      startTime: Date.now(),
+      elapsed: timer?.elapsed ?? 0,
+      running: true,
+    }
+    saveTimer(state)
+    setTimer(state)
+    setDisplayMs(getElapsed(state))
+  }
+
+  function handlePause() {
+    if (!timer) return
+    const state: TimerState = {
+      ...timer,
+      elapsed: getElapsed(timer),
+      running: false,
+    }
+    saveTimer(state)
+    setTimer(state)
+    setDisplayMs(state.elapsed)
+  }
+
+  async function handleFinish() {
+    if (!timer) return
+    const ms = getElapsed(timer)
+    clearTimer(tracker.id)
+    setTimer(null)
+    setDisplayMs(0)
+
+    if (tracker.unit === 'minutes') {
+      const mins = Math.max(1, Math.round(ms / 60000))
+      setLogging(true)
+      await onLog(tracker.id, mins, `计时 ${formatTime(ms)}`)
+      setLogging(false)
+    } else {
+      // Ask how many units completed
+      setFinishDialog({ ms })
+    }
+  }
+
+  async function handleFinishConfirm(e: React.FormEvent) {
     e.preventDefault()
-    const v = parseFloat(input)
-    if (!v || v <= 0) return
+    if (!finishDialog) return
+    const qty = parseInt(finishQty)
+    const mins = Math.max(1, Math.round(finishDialog.ms / 60000))
     setLogging(true)
-    await onLog(tracker.id, v, note.trim() || undefined)
-    setInput('')
-    setNote('')
+    if (qty > 0) {
+      await onLog(tracker.id, qty, `计时 ${formatTime(finishDialog.ms)}`)
+    } else {
+      // Just log time as note, 1 time as placeholder
+      await onLog(tracker.id, 0, `计时 ${formatTime(finishDialog.ms)}（未记录完成量）`)
+    }
+    setFinishDialog(null)
+    setFinishQty('')
     setLogging(false)
   }
 
+  async function handleManualLog(e: React.FormEvent) {
+    e.preventDefault()
+    const v = parseInt(manualInput)
+    if (!v || v <= 0) return
+    setLogging(true)
+    await onLog(tracker.id, v, manualNote.trim() || undefined)
+    setManualInput('')
+    setManualNote('')
+    setLogging(false)
+  }
+
+  const isRunning = timer?.running ?? false
+  const isPaused = timer && !timer.running && timer.elapsed > 0
+  const isIdle = !timer || (!timer.running && !timer.elapsed)
+
   return (
-    <div className={`border rounded-2xl p-4 transition-colors ${done ? 'border-black bg-gray-50' : 'border-gray-200'}`}>
+    <div className={`border rounded-2xl p-4 transition-colors ${
+      done ? 'border-black bg-gray-50' : isRunning ? 'border-green-400' : 'border-gray-200'
+    }`}>
+      {/* Header */}
       <div className="flex items-center gap-3">
         <div className="relative flex items-center justify-center">
-          <ProgressRing pct={pct} />
+          <ProgressRing pct={pct} running={isRunning} />
           <span className="absolute text-xl">{tracker.emoji}</span>
         </div>
         <div className="flex-1 min-w-0">
@@ -72,29 +213,87 @@ function TrackerCard({
         </div>
       </div>
 
-      <form onSubmit={handleLog} className="mt-3 flex gap-2">
-        <input type="number" value={input} onChange={e => setInput(e.target.value)}
-          placeholder={`+ ${UNIT_LABELS[tracker.unit]}`} min={1} step={1}
-          className="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-black" />
-        <input type="text" value={note} onChange={e => setNote(e.target.value)}
+      {/* Timer display */}
+      <div className={`mt-3 rounded-xl px-4 py-2.5 flex items-center justify-between ${
+        isRunning ? 'bg-green-50' : isPaused ? 'bg-yellow-50' : 'bg-gray-50'
+      }`}>
+        <span className={`font-mono text-2xl font-bold tracking-wider ${
+          isRunning ? 'text-green-700' : isPaused ? 'text-yellow-700' : 'text-gray-300'
+        }`}>
+          {displayMs > 0 ? formatTime(displayMs) : '00:00'}
+        </span>
+        <div className="flex gap-2">
+          {(isIdle || isPaused) && (
+            <button onClick={handleStart}
+              className="px-3 py-1.5 bg-black text-white rounded-lg text-sm font-medium hover:bg-gray-800">
+              {isPaused ? '▶ 继续' : '▶ 开始'}
+            </button>
+          )}
+          {isRunning && (
+            <button onClick={handlePause}
+              className="px-3 py-1.5 bg-yellow-100 text-yellow-800 rounded-lg text-sm font-medium hover:bg-yellow-200">
+              ⏸ 暂停
+            </button>
+          )}
+          {(isRunning || isPaused) && (
+            <button onClick={handleFinish} disabled={logging}
+              className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-sm font-medium hover:bg-gray-200 disabled:opacity-40">
+              ⏹ 结束
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Finish dialog for non-minutes units */}
+      {finishDialog && (
+        <form onSubmit={handleFinishConfirm}
+          className="mt-2 border border-dashed border-gray-300 rounded-xl p-3 bg-white">
+          <div className="text-xs text-gray-500 mb-2">
+            计时 {formatTime(finishDialog.ms)}，完成了多少 {UNIT_LABELS[tracker.unit]}？
+          </div>
+          <div className="flex gap-2">
+            <input type="number" value={finishQty} onChange={e => setFinishQty(e.target.value)}
+              placeholder={`${UNIT_LABELS[tracker.unit]}数`} min={0} step={1}
+              className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-black" />
+            <button type="submit" disabled={logging}
+              className="px-3 py-1.5 bg-black text-white rounded-lg text-sm font-medium disabled:opacity-40">
+              确认
+            </button>
+            <button type="button" onClick={() => setFinishDialog(null)}
+              className="px-3 py-1.5 text-gray-400 border border-gray-200 rounded-lg text-sm">
+              取消
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* Manual log */}
+      <form onSubmit={handleManualLog} className="mt-2 flex gap-2">
+        <input type="number" value={manualInput} onChange={e => setManualInput(e.target.value)}
+          placeholder={`手动 + ${UNIT_LABELS[tracker.unit]}`} min={1} step={1}
+          className="w-32 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-black text-gray-500" />
+        <input type="text" value={manualNote} onChange={e => setManualNote(e.target.value)}
           placeholder="备注"
           className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-black" />
-        <button type="submit" disabled={logging || !input}
-          className="px-3 py-1.5 bg-black text-white rounded-lg text-sm font-medium disabled:opacity-40">
+        <button type="submit" disabled={logging || !manualInput}
+          className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium disabled:opacity-40 hover:bg-gray-200">
           记
         </button>
       </form>
 
+      {/* Today's logs */}
       {todayLogs.length > 0 && (
         <div className="mt-2 space-y-0.5">
           {todayLogs.map(l => (
             <div key={l.id} className="text-xs text-gray-400">
-              +{l.value} {UNIT_LABELS[tracker.unit]}{l.note ? ` · ${l.note}` : ''}
+              {l.value > 0 ? `+${l.value} ${UNIT_LABELS[tracker.unit]}` : ''}
+              {l.note ? ` · ${l.note}` : ''}
             </div>
           ))}
         </div>
       )}
 
+      {/* History */}
       <button onClick={() => setExpanded(x => !x)} className="mt-2 text-xs text-gray-300 hover:text-gray-500">
         {expanded ? '收起' : '近7天 ▾'}
       </button>
@@ -123,6 +322,7 @@ function TrackerCard({
   )
 }
 
+// ── Create form ──────────────────────────────────────────────
 const UNITS: { value: TrackerUnit; label: string }[] = [
   { value: 'minutes', label: '分钟' },
   { value: 'pages', label: '页' },
@@ -166,7 +366,7 @@ export default function TrackerPanel() {
       name: newName.trim(),
       emoji: newEmoji,
       unit: newUnit,
-      dailyTarget: parseFloat(newTarget) || 1,
+      dailyTarget: parseInt(newTarget) || 1,
     })
     setTrackers(prev => [...prev, t])
     setNewName('')
@@ -177,7 +377,7 @@ export default function TrackerPanel() {
 
   if (loading) return (
     <div className="space-y-3">
-      {[1,2].map(i => <div key={i} className="h-32 bg-gray-50 rounded-2xl animate-pulse" />)}
+      {[1,2].map(i => <div key={i} className="h-40 bg-gray-50 rounded-2xl animate-pulse" />)}
     </div>
   )
 
