@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import dynamic from 'next/dynamic'
 import { WorkRecord, Category } from './types'
 import {
   getRecords, saveRecord, deleteRecord,
@@ -8,19 +9,20 @@ import {
   formatMinutes, CATEGORY_EMOJI, getToday,
 } from './lib'
 
+const TrackerPanel = dynamic(() => import('./components/TrackerPanel'), { ssr: false })
+
 const CATEGORIES: Category[] = ['编程', '学习', '健身', '写作', '其他']
 
 function HeatmapCell({ minutes, date }: { minutes: number; date: string }) {
   const intensity = minutes === 0 ? 0 : minutes < 30 ? 1 : minutes < 60 ? 2 : minutes < 120 ? 3 : 4
   const bg = ['bg-gray-100','bg-gray-300','bg-gray-500','bg-gray-700','bg-black'][intensity]
-  const label = date.split('-').slice(1).join('/')
   return (
-    <div
-      title={`${label}: ${minutes > 0 ? formatMinutes(minutes) : '无记录'}`}
-      className={`w-7 h-7 rounded-sm ${bg} cursor-default transition-transform hover:scale-110`}
-    />
+    <div title={`${date.slice(5)}: ${minutes > 0 ? formatMinutes(minutes) : '无记录'}`}
+      className={`w-7 h-7 rounded-sm ${bg} cursor-default transition-transform hover:scale-110`} />
   )
 }
+
+type Tab = 'trackers' | 'today' | 'history'
 
 export default function Home() {
   const [records, setRecords] = useState<WorkRecord[]>([])
@@ -29,15 +31,11 @@ export default function Home() {
   const [minutes, setMinutes] = useState('')
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
-  const [tab, setTab] = useState<'today' | 'history'>('today')
+  const [tab, setTab] = useState<Tab>('trackers')
 
   const refresh = useCallback(async () => {
     setLoading(true)
-    try {
-      setRecords(await getRecords())
-    } finally {
-      setLoading(false)
-    }
+    try { setRecords(await getRecords()) } finally { setLoading(false) }
   }, [])
 
   useEffect(() => { refresh() }, [refresh])
@@ -57,9 +55,7 @@ export default function Home() {
       setRecords(prev => [...prev, r])
       setMinutes('')
       setNote('')
-    } finally {
-      setSaving(false)
-    }
+    } finally { setSaving(false) }
   }
 
   async function handleDelete(id: string) {
@@ -72,22 +68,28 @@ export default function Home() {
     minutes: todayStats.records.filter(r => r.category === cat).reduce((s, r) => s + r.minutes, 0),
   })).filter(s => s.minutes > 0)
 
+  const TABS: { key: Tab; label: string }[] = [
+    { key: 'trackers', label: '📌 追踪器' },
+    { key: 'today', label: '今日记录' },
+    { key: 'history', label: '热力图' },
+  ]
+
   return (
     <main className="min-h-screen bg-white text-black">
       <div className="max-w-lg mx-auto px-4 py-8">
-        <div className="mb-8">
+        {/* Header */}
+        <div className="mb-6">
           <h1 className="text-3xl font-black tracking-tight">苦功夫</h1>
           <p className="text-gray-400 text-sm mt-1">每一分钟都算数</p>
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-3 mb-8">
+        <div className="grid grid-cols-3 gap-3 mb-6">
           <div className="border border-black rounded-xl p-4 col-span-2">
-            {loading ? (
-              <div className="h-10 bg-gray-100 rounded animate-pulse" />
-            ) : (
-              <div className="text-4xl font-black">{formatMinutes(todayStats.totalMinutes)}</div>
-            )}
+            {loading
+              ? <div className="h-10 bg-gray-100 rounded animate-pulse" />
+              : <div className="text-4xl font-black">{formatMinutes(todayStats.totalMinutes)}</div>
+            }
             <div className="text-gray-400 text-xs mt-1">今日苦功夫</div>
           </div>
           <div className="border border-gray-200 rounded-xl p-4 flex flex-col items-center justify-center">
@@ -98,7 +100,7 @@ export default function Home() {
         </div>
 
         {/* Add Form */}
-        <form onSubmit={handleAdd} className="border border-black rounded-xl p-5 mb-8">
+        <form onSubmit={handleAdd} className="border border-black rounded-xl p-5 mb-6">
           <div className="text-sm font-bold mb-3">记一次苦功夫</div>
           <div className="flex gap-2 mb-3 flex-wrap">
             {CATEGORIES.map(cat => (
@@ -117,9 +119,7 @@ export default function Home() {
             <div className="flex gap-1">
               {[25, 45, 60, 90].map(m => (
                 <button key={m} type="button" onClick={() => setMinutes(m.toString())}
-                  className="px-2 py-1 text-xs bg-gray-100 rounded-lg hover:bg-gray-200 font-medium">
-                  {m}
-                </button>
+                  className="px-2 py-1 text-xs bg-gray-100 rounded-lg hover:bg-gray-200 font-medium">{m}</button>
               ))}
             </div>
           </div>
@@ -134,16 +134,20 @@ export default function Home() {
 
         {/* Tabs */}
         <div className="flex gap-1 mb-4 bg-gray-100 rounded-xl p-1">
-          {(['today', 'history'] as const).map(t => (
-            <button key={t} onClick={() => setTab(t)}
-              className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${
-                tab === t ? 'bg-white shadow-sm text-black' : 'text-gray-400'
+          {TABS.map(t => (
+            <button key={t.key} onClick={() => setTab(t.key)}
+              className={`flex-1 py-2 text-xs font-medium rounded-lg transition-colors ${
+                tab === t.key ? 'bg-white shadow-sm text-black' : 'text-gray-400'
               }`}>
-              {t === 'today' ? '今日记录' : '历史热力图'}
+              {t.label}
             </button>
           ))}
         </div>
 
+        {/* Tab: Trackers */}
+        {tab === 'trackers' && <TrackerPanel />}
+
+        {/* Tab: Today */}
         {tab === 'today' && (
           <div>
             {categoryStats.length > 0 && (
@@ -156,9 +160,7 @@ export default function Home() {
               </div>
             )}
             {loading ? (
-              <div className="space-y-2">
-                {[1,2,3].map(i => <div key={i} className="h-14 bg-gray-50 rounded-xl animate-pulse" />)}
-              </div>
+              <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="h-14 bg-gray-50 rounded-xl animate-pulse" />)}</div>
             ) : todayStats.records.length === 0 ? (
               <div className="text-center py-12 text-gray-300">
                 <div className="text-4xl mb-2">🔥</div>
@@ -184,13 +186,12 @@ export default function Home() {
           </div>
         )}
 
+        {/* Tab: History */}
         {tab === 'history' && (
           <div>
             <div className="mb-4">
               <div className="flex gap-1.5 flex-wrap">
-                {heatmap.map(day => (
-                  <HeatmapCell key={day.date} minutes={day.totalMinutes} date={day.date} />
-                ))}
+                {heatmap.map(day => <HeatmapCell key={day.date} minutes={day.totalMinutes} date={day.date} />)}
               </div>
               <div className="flex items-center gap-2 mt-3 text-xs text-gray-400">
                 <span>少</span>
