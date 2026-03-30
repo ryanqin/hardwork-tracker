@@ -74,7 +74,7 @@ function TrackerCard({
 
       <form onSubmit={handleLog} className="mt-3 flex gap-2">
         <input type="number" value={input} onChange={e => setInput(e.target.value)}
-          placeholder={`+ ${UNIT_LABELS[tracker.unit]}`} min={1} step={tracker.unit === "times" || tracker.unit === "problems" ? 1 : 0.1}
+          placeholder={`+ ${UNIT_LABELS[tracker.unit]}`} min={1} step={1}
           className="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-black" />
         <input type="text" value={note} onChange={e => setNote(e.target.value)}
           placeholder="备注"
@@ -209,7 +209,7 @@ export default function TrackerPanel() {
               {UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)}
             </select>
             <input value={newTarget} onChange={e => setNewTarget(e.target.value)}
-              placeholder="每日目标" type="number" min={1} step={newUnit === "times" || newUnit === "problems" ? 1 : 0.1}
+              placeholder="每日目标" type="number" min={1} step={1}
               className="w-28 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-black" />
           </div>
           <div className="flex gap-2">
