@@ -15,14 +15,6 @@ const ActivityPool = dynamic(() => import('./components/ActivityPool'), { ssr: f
 
 const CATEGORIES: Category[] = ['编程', '学习', '健身', '写作', '其他']
 
-function HeatmapCell({ minutes, date }: { minutes: number; date: string }) {
-  const intensity = minutes === 0 ? 0 : minutes < 30 ? 1 : minutes < 60 ? 2 : minutes < 120 ? 3 : 4
-  const bg = ['bg-gray-100','bg-gray-300','bg-gray-500','bg-gray-700','bg-black'][intensity]
-  return (
-    <div title={`${date.slice(5)}: ${minutes > 0 ? formatMinutes(minutes) : '无记录'}`}
-      className={`w-6 h-6 rounded-sm ${bg} cursor-default transition-transform hover:scale-110`} />
-  )
-}
 
 export default function Home() {
   // ── Work records ──
@@ -89,6 +81,14 @@ export default function Home() {
     cat, minutes: todayStats.records.filter(r => r.category === cat).reduce((s, r) => s + r.minutes, 0),
   })).filter(s => s.minutes > 0)
 
+  // yesterday tracker completion
+  const yesterday = (() => { const d = new Date(); d.setDate(d.getDate()-1); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` })()
+  const yesterdayDone = trackers.filter(t => {
+    const val = trackerLogs.filter(l => l.trackerId === t.id && l.date === yesterday).reduce((s,l)=>s+l.value,0)
+    return val >= t.dailyTarget
+  }).length
+  const yesterdayTotal = trackers.length
+
   return (
     <main className="min-h-screen bg-white text-black">
       <div className="max-w-5xl mx-auto px-4 py-8">
@@ -110,6 +110,13 @@ export default function Home() {
             <div>
               <div className="text-2xl font-black leading-none">{streak.current}</div>
               <div className="text-xs text-gray-400 mt-0.5">连续天</div>
+            </div>
+            <div className="w-px h-8 bg-gray-100" />
+            <div>
+              <div className={`text-2xl font-black leading-none ${!trackersLoading && yesterdayTotal > 0 && yesterdayDone === yesterdayTotal ? 'text-green-600' : ''}`}>
+                {trackersLoading ? '—' : yesterdayTotal === 0 ? '—' : `${yesterdayDone}/${yesterdayTotal}`}
+              </div>
+              <div className="text-xs text-gray-400 mt-0.5">昨日完成</div>
             </div>
           </div>
         </div>
@@ -185,7 +192,7 @@ export default function Home() {
               {(['today','history'] as const).map(t=>(
                 <button key={t} onClick={()=>setHistTab(t)}
                   className={`flex-1 py-2 text-xs font-medium rounded-lg transition-colors ${histTab===t?'bg-white shadow-sm text-black':'text-gray-400'}`}>
-                  {t==='today'?'今日记录':'热力图'}
+                  {t==='today'?'今日记录':'历史'}
                 </button>
               ))}
             </div>
@@ -193,12 +200,21 @@ export default function Home() {
             {histTab==='today' && (
               <div>
                 {categoryStats.length > 0 && (
-                  <div className="flex gap-2 flex-wrap mb-3">
-                    {categoryStats.map(({cat,minutes:m})=>(
-                      <span key={cat} className="text-xs bg-gray-100 rounded-full px-3 py-1">
-                        {CATEGORY_EMOJI[cat]} {cat} {formatMinutes(m)}
-                      </span>
-                    ))}
+                  <div className="mb-3 space-y-1.5">
+                    {categoryStats.map(({cat,minutes:m})=>{
+                      const pct = todayStats.totalMinutes > 0 ? Math.round(m/todayStats.totalMinutes*100) : 0
+                      return (
+                        <div key={cat}>
+                          <div className="flex justify-between text-xs mb-0.5">
+                            <span>{CATEGORY_EMOJI[cat]} {cat}</span>
+                            <span className="text-gray-400">{formatMinutes(m)} · {pct}%</span>
+                          </div>
+                          <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-full bg-black rounded-full transition-all" style={{width:`${pct}%`}} />
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
                 )}
                 {recLoading ? (
@@ -227,32 +243,20 @@ export default function Home() {
             )}
 
             {histTab==='history' && (
-              <div>
-                <div className="flex gap-1 flex-wrap mb-2">
-                  {heatmap.map(day=><HeatmapCell key={day.date} minutes={day.totalMinutes} date={day.date}/>)}
-                </div>
-                <div className="flex items-center gap-2 mb-4 text-xs text-gray-400">
-                  <span>少</span>
-                  {['bg-gray-100','bg-gray-300','bg-gray-500','bg-gray-700','bg-black'].map((c,i)=>(
-                    <div key={i} className={`w-3.5 h-3.5 rounded-sm ${c}`}/>
-                  ))}
-                  <span>多</span>
-                </div>
-                <div className="space-y-2">
-                  {heatmap.slice(-7).reverse().map(day=>(
-                    <div key={day.date} className="flex items-center gap-3 py-1.5">
-                      <div className="text-xs text-gray-400 w-10 shrink-0">{day.date.slice(5)}</div>
-                      {day.totalMinutes>0?(
-                        <>
-                          <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
-                            <div className="bg-black h-full rounded-full" style={{width:`${Math.min(100,(day.totalMinutes/180)*100)}%`}}/>
-                          </div>
-                          <div className="text-xs font-medium w-16 text-right shrink-0">{formatMinutes(day.totalMinutes)}</div>
-                        </>
-                      ):<div className="flex-1 text-xs text-gray-200">休息日</div>}
-                    </div>
-                  ))}
-                </div>
+              <div className="space-y-2">
+                {heatmap.slice(-14).reverse().map(day=>(
+                  <div key={day.date} className="flex items-center gap-3 py-1.5">
+                    <div className="text-xs text-gray-400 w-10 shrink-0">{day.date.slice(5)}</div>
+                    {day.totalMinutes>0?(
+                      <>
+                        <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                          <div className="bg-black h-full rounded-full" style={{width:`${Math.min(100,(day.totalMinutes/180)*100)}%`}}/>
+                        </div>
+                        <div className="text-xs font-medium w-16 text-right shrink-0">{formatMinutes(day.totalMinutes)}</div>
+                      </>
+                    ):<div className="flex-1 text-xs text-gray-200">休息日</div>}
+                  </div>
+                ))}
               </div>
             )}
           </div>
