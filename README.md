@@ -1,29 +1,34 @@
-# 苦功夫追踪器
+# hardwork-tracker
 
-> 苦功夫 = 刻意练习、高质量专注工作时间。每一分钟都算数。
+> **苦功夫，每一分钟都算数.** The minimal, single-page version of the Mini Habits hardwork tracker — kept alive as the seed.
 
-## 功能
+A small Next.js page that lets you log daily focused-work minutes across a few categories, watch the streak counter, and check the 30-day heatmap. No backend, no auth, no SaaS — opens in a browser tab and stores everything in `localStorage`.
 
-- 📝 **记录苦功夫** — 选择类别、输入时长、可加备注
-- 📊 **今日概览** — 总时长 + 各类别分布
-- 🔥 **连续打卡** — 当前 streak 和历史最高
-- 🗓️ **热力图** — 过去30天日历视图
+## What this is, and what it isn't
 
-## 类别
+This is the **v0** of what eventually became [the `/hardwork` module in `dashboard-me`](https://github.com/ryanqin/dashboard-me) — same Mini Habits idea (set the daily floor absurdly low, show up every day, let consistency compound), pared down to a single page.
 
-💻 编程 · 📚 学习 · 💪 健身 · ✍️ 写作 · ⚡ 其他
+- Want the full thing — multi-tracker timers, daily target rings, jobs pipeline, coding log, optional Oura sync, markdown reader — go look at `dashboard-me`.
+- Want the seed — one page, one idea, opens-in-five-seconds, runs anywhere a browser does — that's this repo.
 
-## 开发
+The seed stayed alive on purpose. The point of Mini Habits is the floor, not the dashboard. Once the floor was held, scope grew sideways into `dashboard-me`. This repo is what it looked like before that.
+
+## What's on the page
+
+- **Daily log** — pick a category, enter minutes, optional note
+- **Today's totals** — split by category
+- **Streak** — current run + all-time best
+- **30-day heatmap** — calendar grid colored by daily minutes
+
+Categories: 💻 编程 · 📚 学习 · 💪 健身 · ✍️ 写作 · ⚡ 其他.
+
+## Tech
+
+- Next.js 14 + TypeScript + Tailwind
+- `localStorage` only — no DB, no API, no auth
+- Single `app/page.tsx` (~13KB) + tracker logic in `tracker-lib.ts`
 
 ```bash
 npm install
-npm run dev
+npm run dev    # http://localhost:3000
 ```
-
-浏览器打开 http://localhost:3000
-
-## 技术栈
-
-- Next.js 14 + TypeScript
-- Tailwind CSS
-- localStorage（无需后端）
